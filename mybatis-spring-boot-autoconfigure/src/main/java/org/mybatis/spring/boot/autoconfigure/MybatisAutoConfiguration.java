@@ -202,8 +202,9 @@ public class MybatisAutoConfiguration implements InitializingBean {
       return new SqlSessionTemplate(sqlSessionFactory);
     }
   }
-
+  
   /**
+   * 当项目里未配置@MapperScan扫描注解时，默认装配扫描springboot基础包和标记@Mapper注解的mapper接口
    * This will just scan the same base package as Spring Boot does. If you want more power, you can explicitly use
    * {@link org.mybatis.spring.annotation.MapperScan} but this will get typed mappers working correctly, out-of-the-box,
    * similar to using Spring Data JPA repositories.
@@ -222,26 +223,39 @@ public class MybatisAutoConfiguration implements InitializingBean {
 
       logger.debug("Searching for mappers annotated with @Mapper");
 
+      /*
+         得到自动装配包配置的路径,最终解析的就是@AutoConfigurationPackage标记的类包。
+         @org.springframework.boot.autoconfigure.AutoConfigurationPackages.PackageImports
+         当使用@SpringBootApplication标记启动程序时，由于上面复合导入了@EnableAutoConfiguration，所以得到的包路径就是当前启动程序的根包
+       */
+  
       List<String> packages = AutoConfigurationPackages.get(this.beanFactory);
       if (logger.isDebugEnabled()) {
         packages.forEach(pkg -> logger.debug("Using auto-configuration base package '{}'", pkg));
       }
-
+  
       BeanDefinitionBuilder builder = BeanDefinitionBuilder.genericBeanDefinition(MapperScannerConfigurer.class);
       builder.addPropertyValue("processPropertyPlaceHolders", true);
+      /*
+        默认扫描标记的@Mapper注解，因为扫描的包范围大，不使用个注解扫描的话，会错误代理到其他接口.
+        这也是很多人出现Invalid bound statement的一种原因，错误的扫描代理到非Mapper接口.
+       */
       builder.addPropertyValue("annotationClass", Mapper.class);
       builder.addPropertyValue("basePackage", StringUtils.collectionToCommaDelimitedString(packages));
       BeanWrapper beanWrapper = new BeanWrapperImpl(MapperScannerConfigurer.class);
       Set<String> propertyNames = Stream.of(beanWrapper.getPropertyDescriptors()).map(PropertyDescriptor::getName)
-          .collect(Collectors.toSet());
+              .collect(Collectors.toSet());
+      //惰性初始化配置
       if (propertyNames.contains("lazyInitialization")) {
         // Need to mybatis-spring 2.0.2+
         builder.addPropertyValue("lazyInitialization", "${mybatis.lazy-initialization:false}");
       }
+      //bean的默认作用域范围 @org.springframework.context.annotation.Scope
       if (propertyNames.contains("defaultScope")) {
         // Need to mybatis-spring 2.0.6+
         builder.addPropertyValue("defaultScope", "${mybatis.mapper-default-scope:}");
       }
+      //注册MapperScannerConfigurer Bean
       registry.registerBeanDefinition(MapperScannerConfigurer.class.getName(), builder.getBeanDefinition());
     }
 
@@ -253,6 +267,7 @@ public class MybatisAutoConfiguration implements InitializingBean {
   }
 
   /**
+   * 默认注册MapperScannerConfigurer Bean
    * If mapper registering configuration or mapper scanning configuration not present, this configuration allow to scan
    * mappers based on the same component-scanning path as Spring Boot itself.
    */
